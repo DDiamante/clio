@@ -21,6 +21,23 @@ const isDir = dir => fs.lstatSync(dir).isDirectory();
 const readDir = dir => fs.readdirSync(dir);
 const walkDir = dir => readDir(dir).map(f => walk(path.join(dir, f)));
 const walk = dir => (isDir(dir) ? flatten(walkDir(dir)) : [dir]);
+const copyDir = async (src, dest) => {
+  const entries = await fs.promises.readdir(src, { withFileTypes: true });
+  mkdir(dest);
+  for (let entry of entries) {
+    const srcPath = path.join(src, entry.name);
+    const destPath = path.join(dest, entry.name);
+    if (entry.isDirectory()) {
+      await copyDir(srcPath, destPath);
+    } else {
+      await fs.promises.copyFile(
+        srcPath,
+        destPath,
+        fs.constants.COPYFILE_FICLONE
+      );
+    }
+  }
+};
 
 const isClioFile = file => file.endsWith(".clio");
 const isNotClioFile = file => !file.endsWith(".clio");
@@ -217,6 +234,12 @@ const build = async (
     progress.succeed();
   }
 
+  progress.start("Linking internals");
+  await linkInternals(
+    path.join(destination, "node_modules", "clio-internals", "src")
+  );
+  progress.succeed();
+
   try {
     const platform = getPlatform(target);
     await platform.build(destination, skipBundle);
@@ -224,6 +247,18 @@ const build = async (
     error(e, "Bundling");
   }
 };
+
+/**
+ * Link local internals package as a dependency
+ * @param {string} destination Full path to destination directory
+ */
+async function linkInternals(
+  destination,
+  // TODO: the source of internals is not resolved in a pretty way. That can probably be optimized
+  source = path.resolve(__dirname, "..", "..", "packages", "internals", "src")
+) {
+  await copyDir(source, destination);
+}
 
 /**
  * Generates a package.json for a clio module.
